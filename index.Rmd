@@ -7,24 +7,90 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(caret)
 ```
 
-## R Markdown
+## Summary
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+We use a random-forests model to predict the quality of exercise activity based on the the data from wearable activity monitors. The estimate an out-of-sample error of 0.9998. 
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+## Info 
 
-```{r cars}
-summary(cars)
+(taken from project description)
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+(from the dataset info)
+
+This human activity recognition research has traditionally focused on discriminating between different activities, i.e. to predict "which" activity was performed at a specific point in time (like with the Daily Living Activities dataset above). The approach we propose for the Weight Lifting Exercises dataset is to investigate "how (well)" an activity was performed by the wearer. The "how (well)" investigation has only received little attention so far, even though it potentially provides useful information for a large variety of applications,such as sports training.
+
+In this work (see the paper) we first define quality of execution and investigate three aspects that pertain to qualitative activity recognition: the problem of specifying correct execution, the automatic and robust detection of execution mistakes, and how to provide feedback on the quality of execution to the user. We tried out an on-body sensing approach (dataset here), but also an "ambient sensing approach" (by using Microsoft Kinect - dataset still unavailable)
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).
+
+## Data processing
+
+The data come largely clean although in a wide format. There are several potential predictors for which all but a few observations are NA. In particular, for many of these predictors, they all have values of NA in the testing set so they will not be useful predictors in our model so we will eliminate those predictors. Other variables in the test set are not useful as predictors for this type of modelling, such as the name of the participant or the timestamp of the observation. This should also be filtered out. 
+```{r fetch data}
+fileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileURL, "pml-training.csv")
+pmltraining <- read.csv("pml-training.csv")
+
+fileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileURL, "pml-testing.csv", method = "curl")
+pmltesting <- read.csv("pml-testing.csv")
 ```
 
-## Including Plots
+This leaves some 53 predictors remaining. There are 19,622 observations in the training set. For our purposes, we will select 80% of these as a training set and the remaining 20% as a validation set. The test set will be used for the prediction quiz. 
 
-You can also embed plots, for example:
+```{r preprocess}
+set.seed(630)
+predictors <- colnames(pmltesting[colSums(!is.na(pmltesting))>0])[c(-(2:7),-60)]
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+trainval <- pmltraining[c(predictors, "classe")]
+testing <- pmltesting[c(predictors, "problem_id")]
+
+inTrain <- createDataPartition(y = trainval$classe, p = 0.8, list = FALSE)
+
+training <- trainval[inTrain,]
+validation <- trainval[-inTrain,]
+
+# preProc <- preProcess(training, method = "pca")
+# trainingPC<- predict(preProc, training)
+# validationPC <- predict(preProc, validation)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Modeling 
+For this sort of classification problem, the best tool is a random forest model. As it relies resampling, there's no real need for cross-validation and for the same reason gives reasonable out-of-sample estimates. However it will likely run slowly. Due to this, we will enable parallel processing and use k-fold resampling (k = 5) instead of bootstrapping. Thanks to the mentor Len Greski for the tips https://rpubs.com/lgreski/improvingCaretPerformance. 
+
+```{r models, cache=TRUE}
+
+library(parallel)
+library(doParallel)
+
+cluster <- makeCluster(detectCores()-1)
+registerDoParallel(cluster)
+
+fitControl <- trainControl(method = "cv",
+                           number = 5,
+                           allowParallel = TRUE)
+rfFit <- train(classe~., data = training, method = "rf",  trControl = fitControl)
+
+
+stopCluster(cluster)
+
+rfFit
+rfFit$resample
+confusionMatrix.train(rfFit)
+```
+
+We can see that the average accuracy is very high. This model should work well. The confusion matrix gives an estimate of out of sample accuracy as 0.9998. The true test of the out of sample error will be the prediciton quiz. However, for the sake of this write up, we will examine performance on the untouched validation sample. 
+
+```{r validation}
+rfPred <- predict(rfFit, validation)
+table(rfPred, validation$classe)
+```
+
+With this we get a perfect score. 
