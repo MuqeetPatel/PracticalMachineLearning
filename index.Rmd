@@ -47,7 +47,7 @@ This leaves some 53 predictors remaining. There are 19,622 observations in the t
 
 ```{r preprocess}
 set.seed(630)
-predictors <- colnames(pmltesting[colSums(!is.na(pmltesting))>0])[c(-(2:7),-60)]
+predictors <- colnames(pmltesting[colSums(!is.na(pmltesting))>0])[c(-(1:7),-60)]
 
 trainval <- pmltraining[c(predictors, "classe")]
 testing <- pmltesting[c(predictors, "problem_id")]
@@ -84,13 +84,14 @@ stopCluster(cluster)
 rfFit
 rfFit$resample
 confusionMatrix.train(rfFit)
+rfFit$finalModel
 ```
 
-We can see that the average accuracy is very high. This model should work well. The confusion matrix gives an estimate of out of sample accuracy as 0.9998. The true test of the out of sample error will be the prediciton quiz. However, for the sake of this write up, we will examine performance on the untouched validation sample. 
+We can see that the average accuracy is very high. This model should work well. The final model gives an estimate of out of sample  error rate is 0.55%. The true test of the out of sample error will be the prediciton quiz. However, for the sake of this write up, we will examine performance on the untouched validation sample. 
 
 ```{r validation}
 rfPred <- predict(rfFit, validation)
 table(rfPred, validation$classe)
 ```
 
-With this we get a perfect score. 
+With this we get a nearly perfect score. 
